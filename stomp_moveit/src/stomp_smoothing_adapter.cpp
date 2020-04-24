@@ -52,9 +52,12 @@ class StompSmoothingAdapter : public planning_request_adapter::PlanningRequestAd
 public:
   StompSmoothingAdapter() : planning_request_adapter::PlanningRequestAdapter()
   {
+    ros::NodeHandle nh("~");
+    initialize(nh);
   }
 
-  virtual void initialize(const ros::NodeHandle& node_handle) override
+  // todo[noetic] add override again
+  virtual void initialize(const ros::NodeHandle& node_handle)
   {
     ros::NodeHandle nh(node_handle);
     if (!StompPlanner::getConfigData(nh, group_config_))
@@ -77,20 +80,20 @@ public:
 
     // STOMP reads the seed trajectory from trajectory constraints so we need to convert the waypoints first
     const size_t seed_waypoint_count = res.trajectory_->getWayPointCount();
-    const std::vector<std::string> joint_names =
-      res.trajectory_->getFirstWayPoint().getJointModelGroup(req.group_name)->getActiveJointModelNames();
-    const size_t joint_count = joint_names.size();
+    const std::vector<std::string> variable_names =
+      res.trajectory_->getFirstWayPoint().getJointModelGroup(req.group_name)->getVariableNames();
+    const size_t variable_count = variable_names.size();
     planning_interface::MotionPlanRequest seed_req = req;
     seed_req.trajectory_constraints.constraints.clear();
     seed_req.trajectory_constraints.constraints.resize(seed_waypoint_count);
     for (size_t i = 0; i < seed_waypoint_count; ++i)
     {
-      seed_req.trajectory_constraints.constraints[i].joint_constraints.resize(joint_count);
-      for (size_t j = 0; j < joint_count; ++j)
+      seed_req.trajectory_constraints.constraints[i].joint_constraints.resize(variable_count);
+      for (size_t j = 0; j < variable_count; ++j)
       {
-        seed_req.trajectory_constraints.constraints[i].joint_constraints[j].joint_name = joint_names[j];
+        seed_req.trajectory_constraints.constraints[i].joint_constraints[j].joint_name = variable_names[j];
         seed_req.trajectory_constraints.constraints[i].joint_constraints[j].position =
-          res.trajectory_->getWayPoint(i).getVariablePosition(joint_names[j]);
+          res.trajectory_->getWayPoint(i).getVariablePosition(variable_names[j]);
       }
     }
 
@@ -104,8 +107,8 @@ public:
     }
 
     // Initialize STOMP Planner
-    stomp_moveit::StompPlanner stompPlanner(req.group_name, group_config_it->second, ps->getRobotModel());
-    if(!stompPlanner.canServiceRequest(seed_req))
+    stomp_moveit::StompPlanner stomp_planner(req.group_name, group_config_it->second, ps->getRobotModel());
+    if(!stomp_planner.canServiceRequest(seed_req))
     {
       ROS_ERROR("STOMP planner unable to service request");
       res.error_code_.val = moveit_msgs::MoveItErrorCodes::FAILURE;
@@ -113,14 +116,14 @@ public:
     }
 
     // Setup Planning Context
-    stompPlanner.clear();
-    stompPlanner.setPlanningScene(ps);
-    stompPlanner.setMotionPlanRequest(seed_req);
+    stomp_planner.clear();
+    stomp_planner.setPlanningScene(ps);
+    stomp_planner.setMotionPlanRequest(seed_req);
 
     // Solve
     ROS_DEBUG("Smoothing result trajectory with STOMP");
     planning_interface::MotionPlanDetailedResponse stomp_res;
-    bool success = stompPlanner.solve(stomp_res);
+    bool success = stomp_planner.solve(stomp_res);
     if (success)
     {
       // Successful responses always contain one entry for trajectory_ and proccessing_time_
